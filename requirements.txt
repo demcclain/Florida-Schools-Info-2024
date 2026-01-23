@@ -1,0 +1,16 @@
+numpy
+polars
+pandas
+geopandas
+requests
+shapely
+flask
+pygris
+pyarrow
+fastparquet
+openpyxl
+duckdb
+pytidycensus
+pytest
+hypothesis
+numba

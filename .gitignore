@@ -1,0 +1,83 @@
+############################
+# Build / packaging outputs
+############################
+/build
+/dist
+*.spec
+*.exe
+*.dll
+*.pyd
+*.so
+*.whl
+*.egg-info/
+
+############################
+# Python cache / tooling
+############################
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+############################
+# Virtual environments
+############################
+.venv/
+venv/
+env/
+.python-version
+
+############################
+# Secrets / config
+############################
+.env
+.env.*
+*.env
+*.secrets
+*.key
+*.pem
+*.p12
+*.crt
+
+############################
+# Data files (private assets)
+############################
+/data/
+/Competing_Schools/
+/generate scripts/
+*.duckdb
+*.sqlite
+*.db
+*.parquet
+*.geojson
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.tif
+*.tiff
+*.csv
+
+############################
+# IDE / OS files
+############################
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+nul
+
+############################
+# Local scripts/output
+############################
+/scripts/
+

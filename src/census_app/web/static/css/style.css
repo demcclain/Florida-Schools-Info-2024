@@ -1,0 +1,296 @@
+/**
+ * Census School Data Explorer - Custom Styles
+ */
+
+/* Reset and base styles */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* App container - sidebar + map layout */
+.app-container {
+    display: flex;
+    height: 100vh;
+    width: 100%;
+}
+
+/* Sidebar */
+.sidebar {
+    width: 520px;
+    min-width: 420px;
+    max-width: 600px;
+    background: #f8f9fa;
+    border-right: 1px solid #dee2e6;
+    padding: 1rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    margin-bottom: 1rem;
+}
+
+.sidebar-header h4 {
+    margin-bottom: 0.5rem;
+    color: #212529;
+}
+
+/* Map container */
+.map-container {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+}
+
+/* Vertical drag resizer between sidebar and map */
+.resizer {
+    width: 8px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.12s ease-in-out;
+}
+.resizer:hover {
+    background: rgba(0,0,0,0.04);
+}
+
+/* Expanded sidebar: take full width and hide map */
+.sidebar.expanded {
+    width: 100% !important;
+    max-width: none !important;
+}
+
+.sidebar.expanded + .resizer {
+    display: none;
+}
+
+.sidebar.expanded ~ .map-container {
+    display: none;
+}
+
+/* When sidebar is expanded, allow the schools grid to grow without limit */
+.sidebar.expanded #schools-grid-container {
+    max-height: none !important;
+    overflow: visible !important;
+}
+
+#map {
+    width: 100%;
+    height: 100%;
+}
+
+/* Make the map area slightly smaller and centered within the main area.
+   No border or translucent overlay. */
+#map {
+    width: calc(100% - 2rem);
+    height: calc(100% - 2rem);
+    margin: 1rem auto;
+    border-radius: 12px;
+    overflow: hidden; /* keep tiles clipped to rounded corners if present */
+}
+/* Mode and metric buttons */
+.btn-group .btn-outline-primary {
+    flex: 1;
+}
+
+.btn-group .btn-outline-secondary {
+    font-size: 0.8rem;
+}
+
+/* Data panels */
+.data-panel {
+    margin-top: 1rem;
+    padding-top: 0.5rem;
+}
+
+.data-panel h5 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 0.75rem;
+}
+
+.data-panel h6 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #6c757d;
+    margin-bottom: 0.5rem;
+}
+
+/* Tables */
+.table {
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+
+.table th {
+    font-weight: 600;
+    background-color: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+.table-sm th, .table-sm td {
+    padding: 0.4rem 0.5rem;
+}
+
+/* Scrollable schools grid */
+#schools-grid-container {
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+}
+
+#schools-grid-container .table {
+    margin-bottom: 0;
+}
+
+#schools-grid-container thead th {
+    background: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+}
+
+/* Loading indicator */
+#loading-indicator {
+    padding: 1rem;
+}
+
+/* Search input group */
+.input-group .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Form controls */
+.form-select, .form-control {
+    font-size: 0.9rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 992px) {
+    .app-container {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        max-width: 100%;
+        min-width: 100%;
+        height: auto;
+        max-height: 50vh;
+        border-right: none;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .map-container {
+        height: 50vh;
+    }
+
+    #schools-grid-container {
+        max-height: 200px;
+    }
+}
+
+/* Leaflet popup customization */
+.leaflet-popup-content {
+    margin: 8px 12px;
+    font-size: 0.9rem;
+}
+
+.leaflet-popup-content-wrapper {
+    border-radius: 6px;
+}
+
+/* Custom scrollbar for sidebar */
+.sidebar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+}
+
+/* Metric buttons - make them wrap nicely */
+.d-flex.flex-wrap.gap-1 {
+    gap: 0.25rem !important;
+}
+
+.d-flex.flex-wrap.gap-1 .btn-sm {
+    flex: 0 1 auto;
+    white-space: nowrap;
+}
+
+/* No data styling */
+td:empty::after,
+td:contains("No data") {
+    color: #6c757d;
+    font-style: italic;
+}
+
+/* Highlight rows on hover in schools table */
+#schools-table tbody tr:hover {
+    background-color: #e9ecef;
+}
+
+/* Sticky table headers */
+.table-responsive .table thead th {
+    position: sticky;
+    top: 0;
+    background: #f8f9fa;
+    z-index: 1;
+}
+
+/* Summary table styling */
+#school-summary-table {
+    margin-bottom: 0;
+}
+
+#school-summary-table th,
+#school-summary-table td {
+    text-align: center;
+}
+
+/* Drive time badge colors */
+.drive-time-5 { color: blue; font-weight: 600; }
+.drive-time-10 { color: green; font-weight: 600; }
+.drive-time-15 { color: purple; font-weight: 600; }
+
+/* Badge color overrides for drive-time badges */
+.badge.drive-time-5 { background-color: #0d6efd; color: #fff; }
+.badge.drive-time-10 { background-color: #198754; color: #fff; }
+.badge.drive-time-15 { background-color: #6f42c1; color: #fff; }
+.badge { font-size: 0.85rem; padding: 0.35rem 0.5rem; }
+
+/* Ensure proper spacing */
+hr {
+    margin: 1rem 0;
+    border: none;
+    border-top: 1px solid #dee2e6;
+}
+
+/* Form labels */
+.form-label {
+    font-size: 0.9rem;
+    margin-bottom: 0.375rem;
+}
