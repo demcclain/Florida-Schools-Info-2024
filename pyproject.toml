@@ -6,16 +6,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "numpy",
-  "polars",
   "pandas",
   "geopandas",
+  "polars",
   "requests",
   "shapely",
-  "shiny",
-  "shinywidgets",
-  "ipyleaflet",
-  "ipywidgets",
-  "ipydatagrid",
+  "flask",
+  "python-dotenv",
   "pygris",
   "pyarrow",
   "fastparquet",
@@ -24,7 +21,16 @@ dependencies = [
 ]
 
 [project.scripts]
-census-app = "census_app.web.main:app.run"
+census-app = "census_app.web.flask_app:app.run"
+
+[project.optional-dependencies]
+census = [
+  "pytidycensus",
+]
+dev = [
+  "pytest",
+  "hypothesis",
+]
 
 [build-system]
 requires = ["hatchling"]

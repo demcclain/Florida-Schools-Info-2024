@@ -58,6 +58,15 @@ def __getattr__(name):
         from . import census_fetcher
         return getattr(census_fetcher, name)
 
+    # Overture Maps exports
+    if name in (
+        "get_buildings", "get_places", "get_roads", "get_infrastructure",
+        "get_addresses", "query_overture_bbox", "features_to_geojson",
+        "bbox_from_center", "OVERTURE_THEMES", "FLORIDA_BBOX"
+    ):
+        from . import overture
+        return getattr(overture, name)
+
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -108,5 +117,16 @@ __all__ = [
     "get_acs_population_bands",
     "get_decennial_block_hu",
     "get_all_tract_acs",
+    # overture
+    "get_buildings",
+    "get_places",
+    "get_roads",
+    "get_infrastructure",
+    "get_addresses",
+    "query_overture_bbox",
+    "features_to_geojson",
+    "bbox_from_center",
+    "OVERTURE_THEMES",
+    "FLORIDA_BBOX",
 ]
 

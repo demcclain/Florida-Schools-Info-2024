@@ -42,17 +42,26 @@ Combines multiple sources:
 
 ---
 
-## ⚡ UV (fast Python dependency manager)
+## ⚡ Run using pyproject.toml (uv)
 
-This project now includes a UV lock setup for reproducible installs.
+This project is configured via `pyproject.toml` and `uv.lock` for reproducible installs.
 
-1. Create/refresh the lock file (uses your local Python):
-	- `uv lock --project "C:/Users/danny/Documents/Geospatial School Data/Project" --python <path-to-python>`
-2. Install dependencies from the lock:
-	- `uv sync --project "C:/Users/danny/Documents/Geospatial School Data/Project"`
+1. Create a virtual environment:
+	- `python -m venv .venv`
+2. Activate the virtual environment:
+	- Git Bash: `source .venv/Scripts/activate`
+	- PowerShell: `.\.venv\Scripts\Activate.ps1`
+	- Command Prompt: `.\.venv\Scripts\activate.bat`
+3. Install dependencies from the lock:
+	- `uv sync`
+4. Run the app:
+	- `uv run python run_app.py`
 
-Run the app:
-	- `python run_app.py`
+Optional (data refresh utilities that use `pytidycensus`):
+	- `uv sync --extra census`
+
+Optional (regenerate lock if dependencies change):
+	- `uv lock`
 
 ---
 

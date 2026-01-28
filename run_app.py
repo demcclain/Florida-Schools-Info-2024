@@ -3,6 +3,13 @@
 import sys
 from pathlib import Path
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass  # python-dotenv not installed, rely on system env vars
+
 # Add src to path for development and handle PyInstaller bundles
 src_path = Path(__file__).parent / "src"
 if src_path.exists():

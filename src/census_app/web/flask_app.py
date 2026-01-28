@@ -39,6 +39,10 @@ app = Flask(
     static_folder=os.path.join(os.path.dirname(__file__), "static"),
 )
 
+# Register Overture Maps API blueprint
+from .overture_routes import overture_bp
+app.register_blueprint(overture_bp)
+
 # School address mapping
 DISPLAY_TO_ADDRESS = {
     "South (Kendall)": "10700 SW 56 Street, Miami, FL 33165",

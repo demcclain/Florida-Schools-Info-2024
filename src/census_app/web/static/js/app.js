@@ -9,6 +9,47 @@ let isochroneLayers = [];
 let schoolMarkers = [];
 let mainMarker = null;
 
+// Overture layers state
+let overtureLayers = {
+    // buildings: null,
+    places: null
+};
+let overtureLayersEnabled = {
+    // buildings: false,
+    places: true  // Auto-enabled
+};
+// Cache for pre-fetched Overture GeoJSON data
+let overtureDataCache = {
+    // buildings: null,
+    places: null
+};
+// Bounding box of the largest isochrone (for Overture queries)
+let isochroneBbox = null;
+// Store isochrone GeoJSON features for clipping Overture data
+let isochroneGeoJSON = null;
+
+// Category filters for places (toggled by UI checkboxes)
+// All major Overture top-level categories
+let enabledCategories = {
+    eat_and_drink: false,
+    retail: false,
+    health_and_medical: false,
+    professional_services: false,
+    beauty_and_spa: false,
+    active_life: false,
+    arts_and_entertainment: false,
+    attractions_and_activities: false,
+    accommodation: false,
+    automotive: false,
+    financial_service: false,
+    public_service_and_government: false,
+    religious_organization: false,
+    travel: false,
+    pets: false,
+    real_estate: false,
+    home_service: false
+};
+
 // Isochrone colors by drive time
 const ISOCHRONE_STYLES = {
     5: { color: 'blue', fillColor: 'blue', fillOpacity: 0.10, weight: 2, opacity: 0.8 },
@@ -75,6 +116,11 @@ function initEventListeners() {
     if (bschList) bschList.addEventListener('click', () => exportData('schools'));
     const bschSummary = document.getElementById('export-schools-summary');
     if (bschSummary) bschSummary.addEventListener('click', () => exportData('schools_summary'));
+
+    // Overture category toggles
+    document.querySelectorAll('input[data-category]').forEach(checkbox => {
+        checkbox.addEventListener('change', handleOvertureCategoryToggle);
+    });
 
     // Draggable vertical resizer between sidebar and map
     const resizer = document.getElementById('drag-resizer');
@@ -284,6 +330,12 @@ async function loadIsochrones() {
         // Add isochrone polygons (sorted by time descending so smaller rings appear on top)
         const features = data.features.sort((a, b) => b.properties.Time - a.properties.Time);
 
+        // Calculate bounding box from largest isochrone (first after sort = 15-min)
+        isochroneBbox = calculateIsochroneBbox(features);
+        // Store isochrone features for clipping Overture data
+        isochroneGeoJSON = features;
+        console.log('Isochrone bbox:', isochroneBbox);
+
         features.forEach(feature => {
             const time = feature.properties.Time;
             const style = ISOCHRONE_STYLES[time] || ISOCHRONE_STYLES[15];
@@ -300,6 +352,9 @@ async function loadIsochrones() {
 
         // Load school markers
         await loadSchoolMarkers();
+
+        // Reload any enabled Overture layers for new location
+        await reloadOvertureLayers();
 
     } catch (error) {
         console.error('Isochrone loading error:', error);
@@ -810,5 +865,581 @@ async function exportData(type) {
     } catch (err) {
         console.error('Export error:', err);
         alert('Error exporting data. See console for details.');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OVERTURE MAPS LAYER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Handle Overture category toggle checkbox change
+ */
+function handleOvertureCategoryToggle(e) {
+    const category = e.target.dataset.category;
+    const enabled = e.target.checked;
+    enabledCategories[category] = enabled;
+
+    // Re-render places layer with updated category filter
+    if (currentLocation && overtureDataCache.places) {
+        renderFilteredPlaces();
+    }
+}
+
+/**
+ * Render places layer filtered by enabled categories
+ */
+function renderFilteredPlaces() {
+    // Remove existing places layer
+    if (overtureLayers.places) {
+        map.removeLayer(overtureLayers.places);
+        overtureLayers.places = null;
+    }
+
+    const geojson = overtureDataCache.places;
+    if (!geojson || !geojson.features || geojson.features.length === 0) {
+        console.log('No cached places data');
+        return;
+    }
+
+    // Get list of enabled categories
+    const activeCategories = Object.entries(enabledCategories)
+        .filter(([_, enabled]) => enabled)
+        .map(([cat, _]) => cat);
+
+    if (activeCategories.length === 0) {
+        console.log('No categories enabled');
+        return;
+    }
+
+    // Filter features by enabled categories
+    // Overture uses hierarchical categories like "restaurant" under "eat_and_drink"
+    // We match if any top-level category in the hierarchy is enabled
+    const filteredFeatures = geojson.features.filter(feature => {
+        const props = feature.properties || {};
+        const categories = props.categories;
+        if (!categories) return false;
+
+        // Collect all category strings from primary and alternate
+        const featureCats = [];
+        if (categories.primary) {
+            const p = Array.isArray(categories.primary) ? categories.primary : [categories.primary];
+            featureCats.push(...p);
+        }
+        if (categories.alternate) {
+            const a = Array.isArray(categories.alternate) ? categories.alternate : [categories.alternate];
+            featureCats.push(...a);
+        }
+
+        // Check if any feature category matches or is a subcategory of an enabled category
+        // Overture categories are hierarchical: e.g., "restaurant" falls under "eat_and_drink"
+        // We check both exact match and if the category starts with enabled category + "_"
+        return featureCats.some(cat => {
+            // Exact match
+            if (activeCategories.includes(cat)) return true;
+            // Check if this is a subcategory (e.g., "restaurant" matches "eat_and_drink")
+            // Note: Overture's taxonomy has top-level categories that contain others
+            // We need to check if the feature's category belongs to any enabled top-level
+            return activeCategories.some(enabledCat => {
+                // Direct match
+                if (cat === enabledCat) return true;
+                // Check common top-level mappings (Overture taxonomy)
+                const subcategoryMappings = {
+                    eat_and_drink: ['restaurant', 'bar', 'cafe', 'coffee_shop', 'bakery', 'ice_cream', 'fast_food', 'food_court'],
+                    retail: ['shopping', 'grocery_store', 'supermarket', 'convenience_store', 'clothing_store', 'department_store', 'pharmacy', 'food'],
+                    health_and_medical: ['hospital', 'doctor', 'dentist', 'clinic', 'pharmacy', 'veterinarian', 'urgent_care'],
+                    professional_services: ['lawyer', 'accountant', 'real_estate_agent', 'insurance', 'bank'],
+                    beauty_and_spa: ['hair_salon', 'barber', 'nail_salon', 'spa', 'massage'],
+                    active_life: ['gym', 'fitness', 'sports', 'yoga', 'swimming_pool', 'golf'],
+                    arts_and_entertainment: ['cinema', 'theater', 'museum', 'casino', 'nightclub', 'arcade'],
+                    attractions_and_activities: ['park', 'beach', 'zoo', 'aquarium', 'amusement_park', 'tourist_attraction'],
+                    accommodation: ['hotel', 'motel', 'hostel', 'resort', 'bed_and_breakfast', 'campground'],
+                    automotive: ['gas_station', 'car_dealer', 'car_wash', 'auto_repair', 'parking'],
+                    financial_service: ['bank', 'atm', 'credit_union', 'insurance'],
+                    public_service_and_government: ['post_office', 'library', 'police', 'fire_station', 'government_office'],
+                    religious_organization: ['church', 'mosque', 'synagogue', 'temple', 'buddhist_temple'],
+                    travel: ['airport', 'train_station', 'bus_station', 'ferry_terminal', 'car_rental'],
+                    pets: ['pet_store', 'veterinarian', 'pet_grooming', 'animal_shelter'],
+                    real_estate: ['real_estate_agent', 'apartment_complex', 'property_management'],
+                    home_service: ['plumber', 'electrician', 'contractor', 'landscaping', 'cleaning_service'],
+                    education: ['school', 'university', 'college', 'preschool', 'tutoring', 'child_care']
+                };
+                // Check if cat contains the enabled category name or is in its known subcategories
+                if (cat.includes(enabledCat)) return true;
+                if (subcategoryMappings[enabledCat] && subcategoryMappings[enabledCat].some(sub => cat.includes(sub))) return true;
+                return false;
+            });
+        });
+    });
+
+    if (filteredFeatures.length === 0) {
+        console.log('No places match enabled categories');
+        return;
+    }
+
+    const filteredGeojson = {
+        type: 'FeatureCollection',
+        features: filteredFeatures
+    };
+
+    const style = getOvertureLayerStyle('places');
+    const layer = L.geoJSON(filteredGeojson, {
+        style: (feature) => style.polygon,
+        pointToLayer: (feature, latlng) => {
+            return L.circleMarker(latlng, style.point);
+        },
+        onEachFeature: (feature, layer) => {
+            const props = feature.properties || {};
+            const name = extractOvertureName(props);
+            const popup = buildOverturePopup('places', props, name);
+            if (popup) layer.bindPopup(popup);
+        }
+    });
+
+    overtureLayers.places = layer;
+    layer.addTo(map);
+    console.log(`Rendered ${filteredFeatures.length} places for categories: ${activeCategories.join(', ')}`);
+}
+
+// Keep old function for compatibility (commented out layer toggle)
+/*
+function handleOvertureLayerToggle(e) {
+    const layerName = e.target.dataset.layer;
+    const enabled = e.target.checked;
+    overtureLayersEnabled[layerName] = enabled;
+
+    if (enabled && currentLocation) {
+        if (overtureDataCache[layerName]) {
+            showOvertureLayerFromCache(layerName);
+        } else {
+            loadOvertureLayer(layerName);
+        }
+    } else if (!enabled && overtureLayers[layerName]) {
+        map.removeLayer(overtureLayers[layerName]);
+        overtureLayers[layerName] = null;
+    }
+}
+*/
+
+/**
+ * Load an Overture layer for the current location
+ */
+async function loadOvertureLayer(layerName) {
+    if (!currentLocation) return;
+
+    // Remove existing layer if any
+    if (overtureLayers[layerName]) {
+        map.removeLayer(overtureLayers[layerName]);
+        overtureLayers[layerName] = null;
+    }
+
+    try {
+        const requestBody = isochroneBbox ? {
+            bbox: [isochroneBbox.xmin, isochroneBbox.ymin, isochroneBbox.xmax, isochroneBbox.ymax],
+            lon: currentLocation.lon,
+            lat: currentLocation.lat,
+            isochrones: isochroneGeoJSON ? { type: 'FeatureCollection', features: isochroneGeoJSON } : null
+        } : {
+            lon: currentLocation.lon,
+            lat: currentLocation.lat,
+            radius_km: 3.0
+        };
+
+        const response = await fetch(`/api/overture/${layerName}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+
+        const geojson = await response.json();
+
+        if (geojson.error) {
+            console.error(`Overture ${layerName} error:`, geojson.error);
+            return;
+        }
+
+        const style = getOvertureLayerStyle(layerName);
+        const layer = L.geoJSON(geojson, {
+            style: (feature) => {
+                // Use line style for LineString/MultiLineString, polygon style otherwise
+                const geomType = feature.geometry?.type;
+                if (geomType === 'LineString' || geomType === 'MultiLineString') {
+                    return style.line || style.polygon;
+                }
+                return style.polygon;
+            },
+            pointToLayer: (feature, latlng) => {
+                return L.circleMarker(latlng, style.point);
+            },
+            onEachFeature: (feature, layer) => {
+                const props = feature.properties || {};
+                const name = extractOvertureName(props);
+                const popup = buildOverturePopup(layerName, props, name);
+                if (popup) layer.bindPopup(popup);
+            }
+        });
+
+        overtureLayers[layerName] = layer;
+        layer.addTo(map);
+
+    } catch (error) {
+        console.error(`Error loading Overture ${layerName}:`, error);
+    }
+}
+
+/**
+ * Get style configuration for an Overture layer
+ */
+function getOvertureLayerStyle(layerName) {
+    // Colors chosen to avoid isochrone colors (blue, green, purple)
+    // Very translucent so isochrones remain prominent
+    const styles = {
+        // buildings removed — not used
+        // buildings: {
+        //     // Very light tan for buildings
+        //     polygon: { color: '#d2691e', weight: 0.5, fillOpacity: 0.1, fillColor: '#deb887' },
+        //     point: { radius: 2, fillColor: '#d2691e', color: '#d2691e', weight: 0.5, fillOpacity: 0.15 }
+        // },
+        places: {
+            // Yellow for places (POIs) - small dots
+            polygon: { color: '#ffd700', weight: 0.5, fillOpacity: 0.15, fillColor: '#ffeb3b' },
+            point: { radius: 3, fillColor: '#ffd700', color: '#b8860b', weight: 1, fillOpacity: 0.6 }
+        },
+        // roads removed — not used
+    };
+    return styles[layerName] || styles.buildings;
+}
+
+/**
+ * Extract name from Overture feature properties
+ */
+function extractOvertureName(props) {
+    if (!props.names) return null;
+    // Overture names can be { primary: "...", common: {...}, ... }
+    if (typeof props.names === 'string') return props.names;
+    if (props.names.primary) return props.names.primary;
+    if (props.names.common) {
+        const common = props.names.common;
+        if (typeof common === 'string') return common;
+        // Could be keyed by language
+        const keys = Object.keys(common);
+        if (keys.length > 0) return common[keys[0]];
+    }
+    return null;
+}
+
+/**
+ * Format Overture categories for display
+ */
+function formatOvertureCategories(categories) {
+    if (!categories) return null;
+
+    // Already a string
+    if (typeof categories === 'string') return categories;
+
+    // Array of strings
+    if (Array.isArray(categories)) {
+        return categories.filter(Boolean).join(', ');
+    }
+
+    // Object structure (e.g., { primary: [...], alternate: [...] })
+    if (typeof categories === 'object') {
+        const primary = categories.primary;
+        const alternate = categories.alternate;
+        const parts = [];
+        if (primary) {
+            const p = Array.isArray(primary) ? primary : [primary];
+            const pText = p.filter(Boolean).join(', ');
+            if (pText) parts.push(pText);
+        }
+        if (alternate) {
+            const a = Array.isArray(alternate) ? alternate : [alternate];
+            const aText = a.filter(Boolean).join(', ');
+            if (aText) parts.push(aText);
+        }
+        return parts.length ? parts.join(' | ') : null;
+    }
+
+    return null;
+}
+
+/**
+ * Build popup content for an Overture feature
+ */
+function buildOverturePopup(layerName, props, name) {
+    let html = '<div class="overture-popup">';
+
+    if (name) {
+        html += `<strong>${name}</strong><br>`;
+    }
+
+    switch (layerName) {
+        // buildings removed — not used
+        // case 'buildings':
+        //     if (props.height) html += `Height: ${props.height}m<br>`;
+        //     if (props.num_floors) html += `Floors: ${props.num_floors}<br>`;
+        //     if (props.class) html += `Class: ${props.class}<br>`;
+        //     break;
+        case 'places':
+            if (props.addresses && props.addresses.length > 0) {
+                const addr = props.addresses[0];
+                if (addr.freeform) html += `Address: ${addr.freeform}<br>`;
+            }
+            const categories = formatOvertureCategories(props.categories);
+            if (categories) html += `Categories: ${categories}<br>`;
+            if (props.websites && props.websites.length > 0) {
+                html += `<a href="${props.websites[0]}" target="_blank">Website</a><br>`;
+            }
+            break;
+        case 'roads':
+            if (props.class) html += `Road class: ${props.class}<br>`;
+            if (props.surface) html += `Surface: ${props.surface}<br>`;
+            break;
+        case 'infrastructure':
+            if (props.class) html += `Type: ${props.class}<br>`;
+            if (props.subtype) html += `Subtype: ${props.subtype}<br>`;
+            break;
+    }
+
+    html += `<small class="text-muted">Source: Overture Maps</small>`;
+    html += '</div>';
+
+    return html;
+}
+
+/**
+ * Reload all enabled Overture layers (called after location change)
+ */
+async function reloadOvertureLayers() {
+    // Pre-fetch ALL Overture layers in parallel for instant toggling
+    await prefetchAllOvertureLayers();
+
+    // Auto-render places with category filtering (places is always enabled now)
+    renderFilteredPlaces();
+}
+
+/**
+ * Pre-fetch all Overture layers for the current location (runs in parallel)
+ */
+async function prefetchAllOvertureLayers() {
+    if (!currentLocation) return;
+
+    // Clear cache
+    for (const key of Object.keys(overtureDataCache)) {
+        overtureDataCache[key] = null;
+    }
+
+    // Use isochrone bbox if available, otherwise fall back to radius
+    let requestBody;
+    if (isochroneBbox) {
+        requestBody = {
+            bbox: [isochroneBbox.xmin, isochroneBbox.ymin, isochroneBbox.xmax, isochroneBbox.ymax],
+            lon: currentLocation.lon,
+            lat: currentLocation.lat,
+            isochrones: isochroneGeoJSON ? { type: 'FeatureCollection', features: isochroneGeoJSON } : null
+        };
+        console.log('Using isochrone bbox for Overture query:', isochroneBbox);
+    } else {
+        requestBody = {
+            lon: currentLocation.lon,
+            lat: currentLocation.lat,
+            radius_km: 5.0  // Fallback radius
+        };
+    }
+
+    const layerNames = [
+        // 'buildings',
+        'places'
+    ];
+    const totalLayers = layerNames.length;
+    let completedLayers = 0;
+
+    // Show progress bar
+    showOvertureProgress(true);
+    updateOvertureProgress(0, totalLayers, 'Loading Overture data...');
+
+    // Fetch all layers in parallel, but track completion
+    const fetchPromises = layerNames.map(async (layerName) => {
+        try {
+            const response = await fetch(`/api/overture/${layerName}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+
+            const geojson = await response.json();
+
+            if (!geojson.error) {
+                overtureDataCache[layerName] = geojson;
+                console.log(`Prefetched ${layerName}: ${geojson.features?.length || 0} features`);
+            } else {
+                console.warn(`Overture ${layerName} error:`, geojson.error);
+            }
+        } catch (error) {
+            console.error(`Error prefetching Overture ${layerName}:`, error);
+        } finally {
+            // Update progress regardless of success/failure
+            completedLayers++;
+            updateOvertureProgress(completedLayers, totalLayers, `Loaded ${layerName}`);
+        }
+    });
+
+    await Promise.all(fetchPromises);
+    console.log('All Overture layers prefetched');
+
+    // Hide progress bar after a short delay
+    setTimeout(() => showOvertureProgress(false), 500);
+}
+
+/**
+ * Show/hide the Overture loading progress bar
+ */
+function showOvertureProgress(show) {
+    const progressEl = document.getElementById('overture-progress');
+    if (progressEl) {
+        progressEl.style.display = show ? 'block' : 'none';
+    }
+}
+
+/**
+ * Update the Overture loading progress bar
+ */
+function updateOvertureProgress(completed, total, text) {
+    const progressBar = document.getElementById('overture-progress-bar');
+    const progressText = document.getElementById('overture-progress-text');
+    const progressCount = document.getElementById('overture-progress-count');
+
+    if (progressBar) {
+        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+        progressBar.style.width = `${pct}%`;
+        progressBar.setAttribute('aria-valuenow', pct);
+
+        // Change color when complete
+        if (completed >= total) {
+            progressBar.classList.remove('progress-bar-animated', 'bg-info');
+            progressBar.classList.add('bg-success');
+        } else {
+            progressBar.classList.add('progress-bar-animated', 'bg-info');
+            progressBar.classList.remove('bg-success');
+        }
+    }
+    if (progressText) {
+        progressText.textContent = text || 'Loading Overture data...';
+    }
+    if (progressCount) {
+        progressCount.textContent = `${completed}/${total}`;
+    }
+}
+
+/**
+ * Show an Overture layer from cache (instant, no fetch)
+ */
+function showOvertureLayerFromCache(layerName) {
+    // Remove existing layer if any
+    if (overtureLayers[layerName]) {
+        map.removeLayer(overtureLayers[layerName]);
+        overtureLayers[layerName] = null;
+    }
+
+    const geojson = overtureDataCache[layerName];
+    if (!geojson || !geojson.features || geojson.features.length === 0) {
+        console.log(`No cached data for ${layerName}`);
+        return;
+    }
+
+    const style = getOvertureLayerStyle(layerName);
+    const layer = L.geoJSON(geojson, {
+        style: (feature) => {
+            // Use line style for LineString/MultiLineString, polygon style otherwise
+            const geomType = feature.geometry?.type;
+            if (geomType === 'LineString' || geomType === 'MultiLineString') {
+                return style.line || style.polygon;
+            }
+            return style.polygon;
+        },
+        pointToLayer: (feature, latlng) => {
+            return L.circleMarker(latlng, style.point);
+        },
+        onEachFeature: (feature, layer) => {
+            const props = feature.properties || {};
+            const name = extractOvertureName(props);
+            const popup = buildOverturePopup(layerName, props, name);
+            if (popup) layer.bindPopup(popup);
+        }
+    });
+
+    overtureLayers[layerName] = layer;
+    layer.addTo(map);
+}
+
+/**
+ * Calculate bounding box from isochrone GeoJSON features
+ * Returns { xmin, ymin, xmax, ymax } or null
+ */
+function calculateIsochroneBbox(features) {
+    if (!features || features.length === 0) return null;
+
+    let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
+
+    // Process all features to get combined bbox (covers all isochrones)
+    features.forEach(feature => {
+        const coords = extractAllCoordinates(feature.geometry);
+        coords.forEach(([lon, lat]) => {
+            if (lon < xmin) xmin = lon;
+            if (lon > xmax) xmax = lon;
+            if (lat < ymin) ymin = lat;
+            if (lat > ymax) ymax = lat;
+        });
+    });
+
+    if (xmin === Infinity) return null;
+
+    // Add small buffer (~100m) to ensure we get features at the edges
+    const buffer = 0.001; // ~111m at equator
+    return {
+        xmin: xmin - buffer,
+        ymin: ymin - buffer,
+        xmax: xmax + buffer,
+        ymax: ymax + buffer
+    };
+}
+
+/**
+ * Extract all coordinates from a GeoJSON geometry (handles Polygon, MultiPolygon, etc.)
+ */
+function extractAllCoordinates(geometry) {
+    if (!geometry) return [];
+
+    const coords = [];
+
+    function processCoords(arr, depth = 0) {
+        if (!Array.isArray(arr)) return;
+
+        // If it's a coordinate pair [lon, lat]
+        if (arr.length >= 2 && typeof arr[0] === 'number' && typeof arr[1] === 'number') {
+            coords.push([arr[0], arr[1]]);
+            return;
+        }
+
+        // Otherwise recurse
+        arr.forEach(item => processCoords(item, depth + 1));
+    }
+
+    if (geometry.coordinates) {
+        processCoords(geometry.coordinates);
+    }
+
+    return coords;
+}
+
+/**
+ * Clear all Overture layers from the map
+ */
+function clearOvertureLayers() {
+    for (const layerName of Object.keys(overtureLayers)) {
+        if (overtureLayers[layerName]) {
+            map.removeLayer(overtureLayers[layerName]);
+            overtureLayers[layerName] = null;
+        }
     }
 }
