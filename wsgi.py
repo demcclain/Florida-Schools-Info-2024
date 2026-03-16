@@ -26,7 +26,7 @@ def ensure_db():
 
     with urlopen(DB_URL, timeout=300) as r:
         data = r.read()
-    
+
     print(f"[DB] Downloaded {len(data) / 1e6:.1f} MB")
 
     # Guard against HTML error pages from OneDrive/SharePoint
